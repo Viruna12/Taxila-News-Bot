@@ -9,7 +9,7 @@ const app = express();
 app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
-// 1. Firebase කෙලින්ම Render Environment Variable එකෙන් විතරක් ගනී
+// 1. Firebase සම්බන්ධ කිරීම (Render Environment Variable එකෙන්)
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -18,7 +18,7 @@ admin.initializeApp({
 const db = admin.firestore();
 const store = new FirestoreStore({ db: db });
 
-// 2. WhatsApp Client එක Setup කිරීම
+// 2. WhatsApp Client එක සාදා ගැනීම
 const client = new Client({
     authStrategy: new RemoteAuth({
         clientId: 'esena-news-session', 
@@ -30,7 +30,7 @@ const client = new Client({
     }
 });
 
-// ⚠️ මේකෙන් QR එක Render Dashboard එකේ Logs වල පෙන්වනවා
+// Render Dashboard Logs වල QR එක පෙන්වීම
 client.on('qr', (qr) => {
     console.log('\n---👇 කරුණාකර මේ QR එක ස්කෑන් කරන්න 👇---\n');
     qrcode.generate(qr, { small: true });
@@ -38,13 +38,19 @@ client.on('qr', (qr) => {
 
 client.on('ready', () => {
     console.log('✅ WhatsApp Bot එක සාර්ථකව සක්‍රිය විය!');
-    setInterval(checkLatestNews, 300000); // විනාඩි 5න් 5ට නිව්ස් බලන්න
+    setInterval(checkLatestNews, 300000); // විනාඩි 5න් 5ට අලුත් නිව්ස් චෙක් කරයි
 });
 
-// 3. වෙබ් සයිට් එකෙන් එන දත්ත Firebase එකට දාන API එක
+client.on('auth_failure', (msg) => {
+    console.error('ලොග් වීමේ දෝෂයක්:', msg);
+});
+
+// 3. වෙබ් සයිට් එකෙන් එන අයව Firebase එකට දාන API එක
 app.post('/api/register', async (req, res) => {
     const { name, number } = req.body;
-    if (!name || !number) return res.status(400).json({ success: false });
+    if (!name || !number) {
+        return res.status(400).json({ success: false, message: 'නම සහ අංකය ඇතුලත් කරන්න.' });
+    }
 
     let formattedNumber = number.replace(/[^\d]/g, '');
     if (formattedNumber.startsWith('0')) {
@@ -58,19 +64,25 @@ app.post('/api/register', async (req, res) => {
             number: formattedNumber,
             registeredAt: admin.firestore.FieldValue.serverTimestamp()
         });
-        res.status(200).json({ success: true });
+        res.status(200).json({ success: true, message: 'ලියාපදිංචිය සාර්ථකයි!' });
 
+        // සාදරයෙන් පිළිගැනීමේ පණිවිඩය
         setTimeout(async () => {
             try {
-                await client.sendMessage(whatsappId, `ආයුබෝවන් *${name}*! 👋\n\nඔබ අපගේ ප්‍රවෘත්ති සේවාව සමඟ සාර්ථකව සම්බන්ධ විය. \n\n_Esena News Bot_`);
-            } catch (err) { console.log(err); }
+                await client.sendMessage(whatsappId, `ආයුබෝවන් *${name}*! 👋\n\nඔබ අපගේ ප්‍රවෘත්ති සේවාව සමඟ සාර්ථකව සම්බන්ධ විය. අලුත්ම පුවත් ඉක්මනින්ම ඔබ වෙත එවනු ලැබේ. \n\n_Esena News Bot_`);
+            } catch (err) { 
+                console.log('Welcome message error:', err.message); 
+            }
         }, 2000);
-    } catch (e) { res.status(500).json({ success: false }); }
+    } catch (e) { 
+        res.status(500).json({ success: false, message: 'Server Error' }); 
+    }
 });
 
-app.get('/health', (req, res) => res.send('ALIVE'));
+// Server එක Live තියාගන්න Health Check එක
+app.get('/health', (req, res) => res.send('BOT IS ALIVE'));
 
-// 4. නිව්ස් බ්‍රෝඩ්කාස්ට් Logic එක
+// 4. නිව්ස් API එකෙන් පුවත් ගෙන හැමෝටම බ්‍රෝඩ්කාස්ට් කරන කොටස
 async function checkLatestNews() {
     try {
         const response = await axios.get('https://esena-news-api-v3.vercel.app/news/latest');
@@ -81,7 +93,10 @@ async function checkLatestNews() {
         let lastSentId = null;
         if (configDoc.exists) lastSentId = configDoc.data().lastId;
 
+        // අලුත් නිව්ස් එකක් නම් විතරක් යවන්න
         if (latestNews.id !== lastSentId) {
+            console.log('🚀 නව පුවතක් හමු විය! යැවීම ආරම්භ කරනවා...');
+            
             const usersSnapshot = await db.collection('subscribers').get();
             const messageText = `📰 *${latestNews.titleSi}*\n\n${latestNews.contentSi[0].data}\n\n🔗 වැඩිදුර කියවන්න: ${latestNews.share_url}`;
             const media = await MessageMedia.fromUrl(latestNews.cover);
@@ -89,15 +104,21 @@ async function checkLatestNews() {
             for (const doc of usersSnapshot.docs) {
                 try {
                     await client.sendMessage(doc.id, media, { caption: messageText });
-                    await new Promise(r => setTimeout(r, 4000)); 
-                } catch (err) { console.log(err); }
+                    await new Promise(r => setTimeout(r, 4000)); // Numbers බ්ලොක් නොවෙන්න තත්පර 4ක පරතරයක්
+                } catch (err) { 
+                    console.log(`Error sending to ${doc.id}:`, err.message); 
+                }
             }
             await configRef.set({ lastId: latestNews.id });
+            console.log('✅ සියලු දෙනාටම පුවත් යවා අවසන්!');
         }
-    } catch (e) { console.log(e.message); }
+    } catch (e) { 
+        console.log('News Check Error:', e.message); 
+    }
 }
 
+// සර්වර් එක ස්ටාර්ට් කිරීම
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
     client.initialize();
 });
