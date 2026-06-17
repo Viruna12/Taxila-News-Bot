@@ -5,4 +5,4 @@
     "wwebjs-firebase-store": "https://github.com/pedroslopez/wwebjs-firebase-store.git",
     "axios": "^1.4.0",
     "qrcode-terminal": "^0.12.0"
-}
+  }
