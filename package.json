@@ -9,6 +9,7 @@
     "express": "4.18.2",
     "firebase-admin": "11.8.0",
     "whatsapp-web.js": "1.23.0",
+    "wwebjs-firebase-store": "git+https://github.com/pedroslopez/wwebjs-firebase-store.git",
     "axios": "1.4.0",
     "qrcode-terminal": "0.12.0"
   }
